@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>电竞场馆</title>
+<!-- 本页自带样式（深色电竞风），不引用 css/style.css，也不加载任何外部资源 -->
+<style>
+	* { box-sizing: border-box; }
+	body {
+		margin: 0;
+		padding: 0;
+		background: #0d1117;
+		color: #e6edf3;
+		font-family: "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+		font-size: 14px;
+		line-height: 1.7;
+	}
+	.wrap { width: 800px; margin: 0 auto; }
+	/* 顶部导航条保留浅色底：站内 logo.gif 是白底图，深色底下会露白边 */
+	nav { background: #f5f5f5; border-bottom: 2px solid #39d0d8; }
+	nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+	nav img { display: block; width: 200px; }
+	nav .profile { color: #333; font-size: 12px; }
+	nav .profile a { color: #3e638d; margin-left: 16px; }
+	footer { border-top: 1px solid #30363d; color: #8b949e; text-align: center; font-size: 12px; padding: 16px 0; margin-top: 32px; }
+	/* 宣传区：深色底 + 亮青霓虹强调色 */
+	#banner { padding: 40px 0 28px; }
+	#banner h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.4; color: #39d0d8; letter-spacing: 1px; }
+	#banner p { margin: 0 0 8px; color: #b9c4cf; font-size: 14px; }
+	#banner .slogan { color: #e6edf3; font-size: 16px; }
+	/* 场馆卡片 */
+	.venue-list { list-style: none; margin: 24px 0 0; padding: 0; }
+	.venue-card { position: relative; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 12px; overflow: hidden; }
+	.venue-card .thumb { float: left; width: 120px; margin-right: 16px; border-radius: 6px; }
+	.venue-card h4 { margin: 0 0 8px; font-size: 16px; color: #e6edf3; }
+	.venue-card .meta { margin: 0 0 6px; color: #8b949e; font-size: 13px; }
+	.venue-card .price { position: absolute; right: 16px; top: 16px; color: #ff7b72; font-size: 18px; font-weight: bold; }
+</style>
+
+<script src="js/jquery.min.js" charset="utf-8"></script>
+<script type="text/javascript">
+	var BRANDS = ["星轨", "幻境", "超频", "霓虹", "极光", "雷霆"];
+	var STORES = ["电竞馆", "网咖", "电竞中心", "电竞体验店"];
+	var DISTRICTS = ["软件园", "大学城", "万象城", "老码头", "体育中心", "科技路"];
+	var GPUS = ["RTX 4060", "RTX 4070", "RTX 4080", "RTX 4090"];
+	var MONITORS = ["144Hz IPS", "165Hz 曲面屏", "240Hz 电竞屏", "360Hz 电竞屏"];
+	var NETWORKS = ["千兆专线", "万兆内网", "5G 双通道"];
+
+	// 从常量池里随机取一项
+	function pick(list) {
+		return list[Math.floor(Math.random() * list.length)];
+	}
+
+	// 每次调用重新随机，返回 8~12 条电竞场馆；只产出数组，不依赖 DOM，也不写任何存储
+	function genVenues() {
+		var count = 8 + Math.floor(Math.random() * 5);
+		var venues = [];
+		for (var i = 0; i < count; i++) {
+			var district = pick(DISTRICTS);
+			var gpu = pick(GPUS);
+			var monitor = pick(MONITORS);
+			var net = pick(NETWORKS);
+			var seats = 20 + Math.floor(Math.random() * 181);
+			venues.push({
+				name: pick(BRANDS) + pick(STORES),
+				district: district,
+				gpu: gpu,
+				monitor: monitor,
+				net: net,
+				seats: seats,
+				price: 5 + Math.floor(Math.random() * 26),
+				description: "位于" + district + "，" + gpu + " 配 " + monitor + "，走 " + net + "，" + seats + " 个机位。"
+			});
+		}
+		return venues;
+	}
+
+	// 文本字段兜底：非空字符串或有限数字才采用，否则用默认文案
+	function textOf(value, fallback) {
+		if (typeof value === "string" && value.replace(/\s/g, "") !== "") {
+			return value;
+		}
+		if (typeof value === "number" && isFinite(value)) {
+			return String(value);
+		}
+		return fallback;
+	}
+
+	// 价格显示：有效数字按「元/小时」展示（四舍五入取整），否则回退为「价格面议」
+	function formatPrice(price) {
+		if (typeof price === "number" && isFinite(price) && price >= 0) {
+			return "¥" + Math.round(price) + "/小时";
+		}
+		return "价格面议";
+	}
+
+	// 机位数兜底：不小于 1 的有限数字才采用，否则按 1 个
+	function seatCount(seats) {
+		if (typeof seats === "number" && isFinite(seats) && seats >= 1) {
+			return Math.floor(seats);
+		}
+		return 1;
+	}
+
+	// 先清空场馆区再一次性写入，可重复调用而不会残留上一批卡片
+	function renderVenues(venues) {
+		var list = venues || [];
+		var html = "";
+		for (var i = 0; i < list.length; i++) {
+			var item = list[i] || {};
+			var name = textOf(item.name, "未命名场馆");
+			var district = textOf(item.district, "未知区域");
+			var gpu = textOf(item.gpu, "未知");
+			var monitor = textOf(item.monitor, "未知");
+			var net = textOf(item.net, "未知");
+			var seats = seatCount(item.seats);
+			var description = textOf(item.description, district + "，" + gpu + " 配 " + monitor + "，走 " + net + "，" + seats + " 个机位。");
+			html += '<li class="venue-card">';
+			html += '<img class="thumb" src="images/1.jpg" alt="' + name + '" />';
+			html += '<h4>' + name + '</h4>';
+			html += '<p class="meta">区域：' + district + ' ｜ 机位：' + seats + ' 个 ｜ GPU：' + gpu + ' ｜ 显示器：' + monitor + ' ｜ 网络：' + net + '</p>';
+			html += '<p class="meta">' + description + '</p>';
+			html += '<span class="price">' + formatPrice(item.price) + '</span>';
+			html += '</li>';
+		}
+		$("#venue-list").empty();
+		$("#venue-list").html(html);
+	}
+
+	$(function() {
+		// 登录校验：只有 code==1 才渲染页面内容；未登录按站内口径跳转登录页
+		$.ajax({
+			type: "post",
+			url: "voteSubject_getLoginUser.action",
+			dataType: "json",
+			success: function(data) {
+				if (data.code == 1 && data.obj && data.obj.uname) {
+					$("#loginuser").html(data.obj.uname);
+					renderVenues(genVenues());
+				} else {
+					alert("你还没有登录");
+					location.href = "login.html";
+				}
+			},
+			error: function() {
+				// 校验请求失败：保持页面骨架，场馆区为空
+				$("#venue-list").empty();
+			}
+		});
+	});
+</script>
+</head>
+<body>
+
+	<nav>
+		<div class="wrap">
+			<img src="images/logo.gif" alt="在线投票系统" />
+			<div class="profile">
+				您好，<span id="loginuser"></span>
+				<a href="manage.html">返回列表</a>
+			</div>
+		</div>
+	</nav>
+
+	<main class="wrap">
+		<!-- 宣传区文案为虚构（mock）演示内容，固定不变，不参与场馆数据的随机生成 -->
+		<section id="banner">
+			<h1>线下电竞馆 · 找个好机位开黑</h1>
+			<p class="slogan">高配机位 ｜ RTX 显卡 + 240Hz 电竞屏 + 千兆专线 ｜ 单人舱 / 双人区 / 五连坐开黑区</p>
+			<p>全馆禁烟、独立空调与新风，24 小时营业；饮料小吃送到机位，组队开黑不用挪窝。</p>
+		</section>
+
+		<ul class="venue-list" id="venue-list">
+
+		</ul>
+	</main>
+
+	<footer>
+		<div class="wrap">源辰信息 &copy; 版权所有</div>
+	</footer>
+
+</body>
+</html>
