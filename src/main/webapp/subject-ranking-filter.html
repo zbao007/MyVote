@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>投票主题参与人数榜（筛选排序）</title>
+<link type="text/css" rel="stylesheet" href="css/style.css" />
+
+<script src="js/jquery.min.js" charset="utf-8"></script>
+<script type="text/javascript">
+	var SUBJECT_PREFIXES = ["年度","校园","社区","部门","城市","全民","班组","社团"];
+	var SUBJECT_SUFFIXES = ["最佳团队","人气之星","服务之星","创意方案","风采人物","优秀作品","热点议题","公益项目"];
+	var TYPE_SINCE = 1;    // 单选，对应 VoteSubject.TYPE_SINCE
+	var TYPE_MULTIPE = 2;  // 多选，对应 VoteSubject.TYPE_MULTIPE
+
+	// 本批主题数据：生成后只读，筛选与排序只从它派生可见集合，不写回
+	var currentSubjects = null;
+
+	// 左侧补零到指定位数，用于生成标题末尾的 2 位随机编号
+	function pad(n, width) {
+		var s = String(n);
+		while (s.length < width) {
+			s = "0" + s;
+		}
+		return s;
+	}
+
+	// 每次调用重新随机，返回 8~12 条主题数据；seq 为 0 起的生成序号，供参与人数并列时排序使用
+	function genSubjects() {
+		var count = 8 + Math.floor(Math.random() * 5);
+		var subjects = [];
+		for (var i = 0; i < count; i++) {
+			var prefix = SUBJECT_PREFIXES[Math.floor(Math.random() * SUBJECT_PREFIXES.length)];
+			var suffix = SUBJECT_SUFFIXES[Math.floor(Math.random() * SUBJECT_SUFFIXES.length)];
+			subjects.push({
+				seq: i,
+				title: prefix + suffix + " " + pad(Math.floor(Math.random() * 100), 2),
+				stype: Math.random() < 0.5 ? TYPE_SINCE : TYPE_MULTIPE,
+				optioncount: 2 + Math.floor(Math.random() * 9),
+				usercount: Math.floor(Math.random() * 10000)
+			});
+		}
+		return subjects;
+	}
+
+	// 取参与人数参与比较：非有限数或负数一律按 0，避免 NaN 让排序顺序变得不可预期
+	function userCountOf(item) {
+		var count = (item && item.usercount !== null && item.usercount !== undefined) ? Number(item.usercount) : NaN;
+		return (isFinite(count) && count >= 0) ? count : 0;
+	}
+
+	// 取选项数用于显示：非有限数或负数一律按 0，与 userCountOf 同口径
+	function optionCountOf(item) {
+		var count = (item && item.optioncount !== null && item.optioncount !== undefined) ? Number(item.optioncount) : NaN;
+		return (isFinite(count) && count >= 0) ? count : 0;
+	}
+
+	// 选题类型文案：与 VoteSubject 的 stype 语义对齐（1 单选、2 多选），其余落占位文案
+	function typeTextOf(item) {
+		var stype = (item && item.stype !== null && item.stype !== undefined) ? Number(item.stype) : NaN;
+		if (stype === TYPE_SINCE) {
+			return "单选";
+		}
+		if (stype === TYPE_MULTIPE) {
+			return "多选";
+		}
+		return "未定类型";
+	}
+
+	// 文本字段去空白判空，空值落占位文案，避免把空值写进页面；关键词筛选也以该显示文本为准
+	function textOf(value, fallback) {
+		return (typeof value === "string" && value.replace(/\s/g, "") !== "") ? value : fallback;
+	}
+
+	// 关键词与标题比较前的归一：关键词去首尾空白、两侧都转小写；标题不做 trim，
+	// 因为词表拼装产生的空格在标题内部，trim 不影响子串判定
+	function normalizeKeyword(keyword) {
+		return (typeof keyword === "string" ? keyword : "").replace(/^\s+|\s+$/g, "").toLowerCase();
+	}
+
+	// 返回标题匹配关键词的子数组，不改动入参；关键词为空即全量。
+	// 匹配对象是渲染同一来源的显示文本（textOf 之后），避免「显示未命名主题却不被未命名匹配」
+	function filterSubjects(items, keyword) {
+		var source = (items && items.length) ? Array.prototype.slice.call(items) : [];
+		var key = normalizeKeyword(keyword);
+		if (key === "") {
+			return source;
+		}
+		var hit = [];
+		for (var i = 0; i < source.length; i++) {
+			var title = textOf(source[i] && source[i].title, "未命名主题");
+			if (title.toLowerCase().indexOf(key) >= 0) {
+				hit.push(source[i]);
+			}
+		}
+		return hit;
+	}
+
+	// 返回按参与人数排列的新数组，不改动入参：dir 为 "asc" 时升序，否则降序。
+	// 比较器只有一个，「方向」只决定人数差的符号，第二关键字恒为生成序号 seq 升序——
+	// 因此并列条目在任何方向下都按生成先后排列，且不依赖 Array.prototype.sort 的稳定性
+	function sortSubjects(items, dir) {
+		var list = (items && items.length) ? Array.prototype.slice.call(items) : [];
+		var sign = (dir === "asc") ? -1 : 1;
+		list.sort(function(a, b) {
+			return sign * (userCountOf(b) - userCountOf(a)) || ((a.seq || 0) - (b.seq || 0));
+		});
+		return list;
+	}
+
+	// 清空列表后一次性写入已排好序的条目，名次取位置序号；可重复调用而不残留上一批条目。
+	// total 为本次生成的总条数：已有数据但可见数为 0 时，改为写一行空态提示
+	function renderSubjects(list, total) {
+		var html = "";
+		if (!list.length && total > 0) {
+			html = '<li class="empty">没有符合条件的主题</li>';
+		}
+		for (var i = 0; i < list.length; i++) {
+			var item = list[i] || {};
+			var rank = i + 1;
+			var title = textOf(item.title, "未命名主题");
+			var type = typeTextOf(item);
+			var optioncount = optionCountOf(item);
+			var usercount = userCountOf(item);
+
+			html += '<li' + (i % 2 === 0 ? ' class="odd"' : '') + '>';
+			html += '<img src="images/1.jpg" alt="' + title + '" style="float:left; width:120px; margin-right:10px;" />';
+			html += '<h4>No.' + rank + ' ' + title + '</h4>';
+			html += '<p class="info">类型：' + type + ' ｜ 选项数：' + optioncount + ' ｜ 参与人数：' + usercount + '</p>';
+			html += '</li>';
+		}
+		$("#list").empty();
+		$("#list").html(html);
+	}
+
+	// 视图派生入口：筛选与排序都只是视图参数，每次都从 currentSubjects 重新派生，
+	// 不写回批数据、不重新生成、不发起请求；渲染后再写计数，计数与空态在同一处产出、互不覆盖
+	function applyView() {
+		if (!currentSubjects || currentSubjects.length === 0) {
+			$("#list").empty();
+			$("#count").text("");
+			return;
+		}
+		var visible = filterSubjects(currentSubjects, $("#keyword").val());
+		var sorted = sortSubjects(visible, $("#sortdir").val());
+		renderSubjects(sorted, currentSubjects.length);
+		$("#count").text("当前显示 " + sorted.length + " / 共 " + currentSubjects.length + " 条");
+	}
+
+	// 榜单入口：把本批数据存下即冻结（生成顺序，seq 为生成序号），复位视图参数后渲染
+	function showSubjects(items) {
+		currentSubjects = (items && items.length) ? Array.prototype.slice.call(items) : [];
+		$("#sortdir").val("desc");
+		$("#keyword").val("");
+		applyView();
+	}
+
+	$(function() {
+		// 筛选即时生效：输入即重算视图，不再额外放「筛选」按钮
+		$("#keyword").on("input", applyView);
+		// 排序方向切换后按新顺序重排并重算名次
+		$("#sortdir").on("change", applyView);
+
+		// 登录校验：只有校验通过才生成并渲染榜单；未登录或响应残缺时列表区与计数区始终为空
+		$.ajax({
+			type: "post",
+			url: "voteSubject_getLoginUser.action",
+			dataType: "json",
+			success: function(data) {
+				if (data.code == 1 && data.obj && data.obj.uname) {
+					$("#loginuser").html(data.obj.uname);
+					showSubjects(genSubjects());
+				} else {
+					alert("你还没有登录");
+					location.href = "login.html";
+				}
+			}
+		});
+	});
+</script>
+</head>
+<body>
+
+	<div id="header" class="wrap">
+		<img src="images/logo.gif" />
+	</div>
+	<div id="navbar" class="wrap">
+		<div class="profile">
+			您好，<span id="loginuser"></span>
+			 <span class="return"><a href="manage.html">返回列表</a></span>
+		</div>
+	</div>
+
+	<div id="vote" class="wrap">
+		<h2>投票主题参与人数榜（筛选排序）</h2>
+		<div class="filterbar">
+			关键词：<input type="text" id="keyword" class="input-text" />
+			排序：<select id="sortdir" class="input-text">
+				<option value="desc">参与人数：从高到低</option>
+				<option value="asc">参与人数：从低到高</option>
+			</select>
+			<span id="count"></span>
+		</div>
+		<ul class="list" id="list">
+
+		</ul>
+	</div>
+	<div id="footer" class="wrap">源辰信息 &copy; 版权所有</div>
+</body>
+</html>
