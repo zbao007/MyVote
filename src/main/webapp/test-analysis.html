@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>测试报告分析</title>
+<link type="text/css" rel="stylesheet" href="css/style.css" />
+
+<script src="js/jquery.min.js" charset="utf-8"></script>
+<script type="text/javascript">
+	var ITEM_PREFIXES = ["登录","下单","支付","搜索","上传","导出"];
+	var ITEM_SUFFIXES = ["流程","校验","用例","场景","链路","回归"];
+	var ITEM_CATEGORIES = ["功能","接口","性能","兼容性","安全","回归"];
+	var ITEM_STATUSES = ["通过","失败","待执行","执行中"];
+
+	// 左侧补零到指定位数，用于生成 2 位随机编号
+	function pad(n, width) {
+		var s = String(n);
+		while (s.length < width) {
+			s = "0" + s;
+		}
+		return s;
+	}
+
+	// 每次调用重新随机，返回 10~20 条原始测试条目；不依赖 DOM，也不写任何存储
+	function genTestItems() {
+		var count = 10 + Math.floor(Math.random() * 11);
+		var items = [];
+		for (var i = 0; i < count; i++) {
+			var prefix = ITEM_PREFIXES[Math.floor(Math.random() * ITEM_PREFIXES.length)];
+			var suffix = ITEM_SUFFIXES[Math.floor(Math.random() * ITEM_SUFFIXES.length)];
+			var category = ITEM_CATEGORIES[Math.floor(Math.random() * ITEM_CATEGORIES.length)];
+			var status = ITEM_STATUSES[Math.floor(Math.random() * ITEM_STATUSES.length)];
+			items.push({
+				name: prefix + suffix + " " + pad(Math.floor(Math.random() * 100), 2),
+				category: category,
+				status: status,
+				duration: 1 + Math.floor(Math.random() * 600),
+				description: "用于验证" + prefix + suffix + "相关行为的" + category + "测试条目。"
+			});
+		}
+		return items;
+	}
+
+	// 统计与渲染共用的归一化入口：缺失或非法字段在这里统一兜底，
+	// 保证统计口径与明细展示始终基于同一份数据
+	function normalizeItem(raw) {
+		var item = raw || {};
+		return {
+			name: (typeof item.name === "string" && item.name.replace(/\s/g, "") !== "") ? item.name : "未命名条目",
+			category: (typeof item.category === "string" && item.category.replace(/\s/g, "") !== "") ? item.category : "未分类",
+			status: (typeof item.status === "string" && item.status.replace(/\s/g, "") !== "") ? item.status : "未知状态",
+			duration: (typeof item.duration === "number" && isFinite(item.duration) && item.duration >= 0 && Math.floor(item.duration) === item.duration) ? item.duration : 0,
+			description: (typeof item.description === "string" && item.description.replace(/\s/g, "") !== "") ? item.description : "暂无描述"
+		};
+	}
+
+	// 纯函数：只对归一化后的条目数组做汇总，不碰 DOM，可在控制台独立复算
+	function computeStats(items) {
+		var list = items || [];
+		var passed = 0;
+		var failed = 0;
+		var durationSum = 0;
+		var buckets = {};
+		var extraOrder = [];
+		for (var i = 0; i < list.length; i++) {
+			var it = list[i];
+			if (it.status === "通过") {
+				passed++;
+			}
+			if (it.status === "失败") {
+				failed++;
+			}
+			durationSum += it.duration;
+			if (!buckets[it.category]) {
+				buckets[it.category] = { category: it.category, total: 0, passed: 0 };
+				if (ITEM_CATEGORIES.indexOf(it.category) < 0) {
+					extraOrder.push(it.category);
+				}
+			}
+			buckets[it.category].total++;
+			if (it.status === "通过") {
+				buckets[it.category].passed++;
+			}
+		}
+		var executed = passed + failed;
+		// 分类统计按预定义集合固定顺序输出（计数可为 0），其余桶（如「未分类」）按出现顺序追加
+		var byCategory = [];
+		for (var j = 0; j < ITEM_CATEGORIES.length; j++) {
+			var c = ITEM_CATEGORIES[j];
+			byCategory.push(buckets[c] || { category: c, total: 0, passed: 0 });
+		}
+		for (var k = 0; k < extraOrder.length; k++) {
+			byCategory.push(buckets[extraOrder[k]]);
+		}
+		return {
+			total: list.length,
+			passed: passed,
+			failed: failed,
+			passRate: executed === 0 ? 0 : passed / executed,
+			avgDuration: list.length === 0 ? 0 : durationSum / list.length,
+			byCategory: byCategory
+		};
+	}
+
+	// 汇总区：沿用既有 p.info 文本逐行输出指标与分类统计，不新增样式
+	function renderSummary(stats) {
+		var html = '<p class="info">总数：' + stats.total
+			+ ' ｜ 通过数：' + stats.passed
+			+ ' ｜ 失败数：' + stats.failed
+			+ ' ｜ 通过率：' + (stats.passRate * 100).toFixed(1) + '%'
+			+ ' ｜ 平均耗时：' + stats.avgDuration.toFixed(1) + ' 秒</p>';
+		for (var i = 0; i < stats.byCategory.length; i++) {
+			var b = stats.byCategory[i];
+			html += '<p class="info">' + b.category + '：' + b.total + ' 条，通过 ' + b.passed + ' 条</p>';
+		}
+		$("#summary").empty();
+		$("#summary").html(html);
+	}
+
+	// 明细列表：先拼 HTML 字符串再一次性写入，重复调用不叠加
+	function renderItems(items) {
+		var list = items || [];
+		var html = "";
+		for (var i = 0; i < list.length; i++) {
+			var item = list[i];
+			html += '<li' + (i % 2 === 0 ? ' class="odd"' : '') + '>';
+			html += '<img src="images/1.jpg" alt="' + item.name + '" style="float:left; width:120px; margin-right:10px;" />';
+			html += '<h4>' + item.name + '</h4>';
+			html += '<p class="info">类别：' + item.category + ' ｜ 状态：' + item.status + ' ｜ 耗时：' + item.duration + ' 秒</p>';
+			html += '<p class="info">' + item.description + '</p>';
+			html += '</li>';
+		}
+		$("#list").empty();
+		$("#list").html(html);
+	}
+
+	$(function() {
+		// 登录校验与数据渲染串行：只有校验通过才生成并渲染，未登录时分析区与列表始终为空
+		$.ajax({
+			type: "post",
+			url: "voteSubject_getLoginUser.action",
+			dataType: "json",
+			success: function(data) {
+				if (data.code == 1) {
+					$("#loginuser").html(data.obj.uname);
+					var raw = genTestItems();
+					var items = [];
+					for (var i = 0; i < raw.length; i++) {
+						items.push(normalizeItem(raw[i]));
+					}
+					renderSummary(computeStats(items));
+					renderItems(items);
+				} else {
+					alert("你还没有登录");
+					location.href = "login.html";
+				}
+			}
+		});
+	});
+</script>
+</head>
+<body>
+
+	<div id="header" class="wrap">
+		<img src="images/logo.gif" />
+	</div>
+	<div id="navbar" class="wrap">
+		<div class="profile">
+			您好，<span id="loginuser"></span>
+			 <span class="return"><a href="manage.html">返回列表</a></span>
+		</div>
+	</div>
+
+	<div id="vote" class="wrap">
+		<h2>测试报告分析</h2>
+		<div id="summary">
+
+		</div>
+		<ul class="list" id="list">
+
+		</ul>
+	</div>
+	<div id="footer" class="wrap">源辰信息 &copy; 版权所有</div>
+</body>
+</html>
